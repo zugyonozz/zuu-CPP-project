@@ -5,8 +5,9 @@
 
 #include "generic.hpp"
 #include "bytes.hpp"
+#include <iomanip>
 #include <iostream>
-using namespace zuu ;
+#include <string>
 
 // Custom trivial type untuk testing
 struct Point {
@@ -148,7 +149,64 @@ int main() {
     
     std::cout << "    b1 | b2 = 0x" << std::hex << b3.to_int<uint32_t>() 
               << std::dec << "\n";
-    std::cout << "    popcount(b3) = " << b3.popcount() << " bits\n";
+    std::cout << "    popcount(b3) = " << b3.popcount() << " bits\n\n";
+
+    // ============= Endian Conversion =============
+    
+    std::cout << "13. Endian Conversion:\n";
+    std::cout << "    Native endian: " << (is_little_endian ? "little" : "big") << "\n";
+    
+    // Composer endian
+    composer<uint32_t> c2(0x12345678u);
+    std::cout << "    Original: 0x" << std::hex << c2.value() << "\n";
+    
+    auto c2_le = c2.to_little_endian();
+    auto c2_be = c2.to_big_endian();
+    std::cout << "    to_little_endian: 0x" << c2_le.value() << "\n";
+    std::cout << "    to_big_endian:    0x" << c2_be.value() << "\n";
+    
+    // Bytes as hex
+    std::cout << "    Original bytes:   ";
+    for (auto byte : c2) std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
+    std::cout << "\n";
+    
+    std::cout << "    Big-endian bytes: ";
+    for (auto byte : c2_be) std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
+    std::cout << std::dec << "\n\n";
+
+    // Bytes endian
+    std::cout << "14. Bytes Endian:\n";
+    bytes<4> b4(0xAABBCCDDu);
+    std::cout << "    Original: ";
+    for (auto byte : b4) std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
+    std::cout << "\n";
+    
+    auto b4_be = b4.to_big_endian();
+    std::cout << "    to_big_endian: ";
+    for (auto byte : b4_be) std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
+    std::cout << "\n";
+    
+    auto b4_net = b4.to_network();
+    std::cout << "    to_network:    ";
+    for (auto byte : b4_net) std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
+    std::cout << std::dec << "\n\n";
+
+    // Network byte order (common use case)
+    std::cout << "15. Network Byte Order:\n";
+    uint16_t port = 8080;
+    auto port_net = hton(port);
+    std::cout << "    Port " << port << " -> network order: " << port_net << "\n";
+    std::cout << "    Back to host: " << ntoh(port_net) << "\n\n";
+
+    // Integration: composer + bytes + endian
+    std::cout << "16. Integration Example:\n";
+    uint32_t ip_addr = 0xC0A80001; // 192.168.0.1
+    composer<uint32_t> ip_comp(ip_addr);
+    auto ip_bytes = ip_comp.to_network().as_bytes();
+    
+    std::cout << "    IP 0x" << std::hex << ip_addr << " as bytes: ";
+    for (auto b : ip_bytes) std::cout << std::dec << (int)b << ".";
+    std::cout << "\b \n";
 
     return 0;
 }

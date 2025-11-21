@@ -4,8 +4,9 @@
  */
 
 #include "generic.hpp"
+#include "bytes.hpp"
 #include <iostream>
-#include <string>
+using namespace zuu ;
 
 // Custom trivial type untuk testing
 struct Point {
@@ -132,10 +133,10 @@ int main() {
     // ============= Composer Usage =============
     
     std::cout << "11. Composer (type punning):\n";
-    composer<int> c(0x12345678);
-    std::cout << "    Value: 0x" << std::hex << c.value() << std::dec << "\n";
+    composer<int> d(0x12345678);
+    std::cout << "    Value: 0x" << std::hex << d.value() << std::dec << "\n";
     std::cout << "    Bytes: ";
-    for (auto b : c) std::cout << std::hex << (int)b << " ";
+    for (auto b : d) std::cout << std::hex << (int)b << " ";
     std::cout << std::dec << "\n\n";
 
     // ============= Bytes Usage =============

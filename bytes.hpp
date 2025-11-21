@@ -9,6 +9,8 @@
  * Dioptimasi untuk operasi bitwise dan cache efficiency.
  */
 
+#include "endian.hpp"
+#include <algorithm>
 #include <bit>
 #include <cstdint>
 #include <cstring>
@@ -254,6 +256,168 @@ public:
         bytes r;
         for (size_type i = 0; i < N; ++i) r.data_[i] = data_[N - 1 - i];
         return r;
+    }
+
+    // ============= Endian Conversion =============
+
+    /**
+     * @brief Convert ke little-endian (reverse jika native big-endian)
+     * @return bytes dalam little-endian order
+     * @note No-op pada little-endian systems
+     */
+    [[nodiscard]] constexpr bytes to_little_endian() const noexcept {
+        if constexpr (is_little_endian) {
+            return *this;
+        } else {
+            return reverse();
+        }
+    }
+
+    /**
+     * @brief Convert ke big-endian (reverse jika native little-endian)
+     * @return bytes dalam big-endian order
+     * @note No-op pada big-endian systems
+     */
+    [[nodiscard]] constexpr bytes to_big_endian() const noexcept {
+        if constexpr (is_big_endian) {
+            return *this;
+        } else {
+            return reverse();
+        }
+    }
+
+    /**
+     * @brief Convert ke network byte order (big-endian)
+     * @return bytes dalam network order
+     */
+    [[nodiscard]] constexpr bytes to_network() const noexcept {
+        return to_big_endian();
+    }
+
+    /**
+     * @brief Interpret sebagai little-endian, convert ke native
+     * @return bytes dalam native order
+     */
+    [[nodiscard]] constexpr bytes from_little_endian() const noexcept {
+        return to_little_endian(); // Symmetric operation
+    }
+
+    /**
+     * @brief Interpret sebagai big-endian, convert ke native
+     * @return bytes dalam native order
+     */
+    [[nodiscard]] constexpr bytes from_big_endian() const noexcept {
+        return to_big_endian(); // Symmetric operation
+    }
+
+    /**
+     * @brief Interpret sebagai network order, convert ke native
+     * @return bytes dalam native order
+     */
+    [[nodiscard]] constexpr bytes from_network() const noexcept {
+        return from_big_endian();
+    }
+
+    /**
+     * @brief Convert ke endianness tertentu (runtime)
+     * @param target Target endianness
+     * @return bytes dalam target order
+     */
+    [[nodiscard]] constexpr bytes to_endian(endian_t target) const noexcept {
+        if (target == native_endian) {
+            return *this;
+        } else {
+            return reverse();
+        }
+    }
+
+    /**
+     * @brief Convert dari endianness tertentu ke native (runtime)
+     * @param source Source endianness
+     * @return bytes dalam native order
+     */
+    [[nodiscard]] constexpr bytes from_endian(endian_t source) const noexcept {
+        return to_endian(source); // Symmetric
+    }
+
+    /**
+     * @brief Reverse bytes in-place
+     */
+    constexpr void swap_bytes() noexcept {
+        for (size_type i = 0; i < N / 2; ++i) {
+            byte_t temp = data_[i];
+            data_[i] = data_[N - 1 - i];
+            data_[N - 1 - i] = temp;
+        }
+    }
+
+    /**
+     * @brief Convert to little-endian in-place
+     * @note No-op pada little-endian systems
+     */
+    constexpr void make_little_endian() noexcept {
+        if constexpr (!is_little_endian) {
+            swap_bytes();
+        }
+    }
+
+    /**
+     * @brief Convert to big-endian in-place
+     * @note No-op pada big-endian systems
+     */
+    constexpr void make_big_endian() noexcept {
+        if constexpr (!is_big_endian) {
+            swap_bytes();
+        }
+    }
+
+    // ============= Integer Conversion with Endian =============
+
+    /**
+     * @brief Convert ke integer dengan endian tertentu
+     * @tparam IntT Target integer type
+     * @param source_endian Endianness dari stored bytes
+     * @return Integer value dalam native byte order
+     */
+    template <typename IntT>
+    requires std::is_integral_v<IntT>
+    [[nodiscard]] constexpr IntT to_int(endian_t source_endian) const noexcept {
+        auto native_bytes = from_endian(source_endian);
+        return native_bytes.template to_int<IntT>();
+    }
+
+    /**
+     * @brief Create bytes dari integer dengan target endian
+     * @tparam IntT Source integer type
+     * @param value Integer value (native byte order)
+     * @param target_endian Target byte order untuk storage
+     */
+    template <typename IntT>
+    requires std::is_integral_v<IntT>
+    [[nodiscard]] static constexpr bytes from_int(IntT value, endian_t target_endian) noexcept {
+        bytes result(value);
+        if (target_endian != native_endian) {
+            result.swap_bytes();
+        }
+        return result;
+    }
+
+    /**
+     * @brief Create bytes dari little-endian integer
+     */
+    template <typename IntT>
+    requires std::is_integral_v<IntT>
+    [[nodiscard]] static constexpr bytes from_little_endian_int(IntT value) noexcept {
+        return from_int(zuu::to_little_endian(value), endian_t::little);
+    }
+
+    /**
+     * @brief Create bytes dari big-endian integer
+     */
+    template <typename IntT>
+    requires std::is_integral_v<IntT>
+    [[nodiscard]] static constexpr bytes from_big_endian_int(IntT value) noexcept {
+        return from_int(zuu::to_big_endian(value), endian_t::big);
     }
 
     // ============= Comparison =============

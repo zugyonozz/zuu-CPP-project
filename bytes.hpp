@@ -1,368 +1,269 @@
-#include <algorithm>
-#include <iostream>
-#include <iomanip>
-#include <cstring>
-#include <bit>
+#pragma once
 
 /**
- * @brief Container untuk menyimpan array byte dengan ukuran tetap
- * @details Container compile-time yang mendukung operasi bitwise dengan performa tinggi.
- *          Semua operasi constexpr dan dapat dijalankan saat compile-time.
+ * @file bytes.hpp
+ * @brief Fixed-size byte array dengan operasi bitwise
+ * @version 1.1.0
  * 
- * Fitur utama:
- * - Operasi bitwise: AND, OR, XOR, NOT, shift
- * - Konversi ke/dari integer
- * - Manipulasi bit individual
- * - Operasi rotasi
- * - Format output binary dan hexadecimal
- * 
- * @tparam N Jumlah byte (harus > 0)
+ * Container compile-time untuk manipulasi bit-level.
+ * Dioptimasi untuk operasi bitwise dan cache efficiency.
  */
-template <size_t N = 1>
-class bytes {
-private:
-	using byte_t = unsigned char ;
-	using index_t = size_t ;
 
-	alignas(16) byte_t data_[N]{} ;
+#include <bit>
+#include <cstdint>
+#include <cstring>
+
+namespace zuu {
+
+/**
+ * @brief Fixed-size byte array dengan operasi bitwise
+ * @tparam N Jumlah byte (harus > 0)
+ * 
+ * Memory layout: aligned 16-byte untuk SIMD compatibility
+ * 
+ * @note Semua operasi constexpr dan noexcept
+ * @note Little-endian byte order
+ */
+template <size_t N>
+requires (N > 0)
+class bytes {
+public:
+    // ============= Type Aliases =============
+    using byte_t = uint8_t;
+    using size_type = size_t;
+    using value_type = byte_t;
+    using pointer = byte_t*;
+    using const_pointer = const byte_t*;
+    using reference = byte_t&;
+    using const_reference = const byte_t&;
+
+    static constexpr size_type byte_count = N;
+    static constexpr size_type bit_count = N * 8;
+
+private:
+    alignas(N >= 16 ? 16 : (N >= 8 ? 8 : (N >= 4 ? 4 : 1))) 
+    byte_t data_[N]{};
 
 public:
-	static_assert(N > 0, "Size N must be greater than 0!") ;
+    // ============= Constructors =============
+    
+    constexpr bytes() noexcept = default;
+    constexpr bytes(const bytes&) noexcept = default;
+    constexpr bytes(bytes&&) noexcept = default;
+    constexpr bytes& operator=(const bytes&) noexcept = default;
+    constexpr bytes& operator=(bytes&&) noexcept = default;
 
-	// ============= Constructors =============
-	constexpr bytes() noexcept = default ;
-	constexpr bytes(const bytes&) noexcept = default ;
-	constexpr bytes(bytes&&) noexcept = default ;
-	constexpr bytes& operator=(const bytes&) noexcept = default ;
-	constexpr bytes& operator=(bytes&&) noexcept = default ;
+    /** @brief Construct dari array */
+    constexpr bytes(const byte_t (&data)[N]) noexcept {
+        for (size_type i = 0; i < N; ++i) data_[i] = data[i];
+    }
 
-	/**
-	 * @brief Konstruktor dari array byte
-	 * @param data Array byte dengan ukuran N
-	 */
-	constexpr bytes(const byte_t (&data)[N]) noexcept {
-		std::copy(data, data + N, data_) ;
-	}
+    /** @brief Construct dari pointer + length */
+    constexpr bytes(const byte_t* data, size_type len) noexcept {
+        const size_type n = len < N ? len : N;
+        for (size_type i = 0; i < n; ++i) data_[i] = data[i];
+    }
 
-	/**
-	 * @brief Konstruktor dari pointer dan panjang
-	 * @param data Pointer ke data byte
-	 * @param len Panjang data (max N byte akan disalin)
-	 */
-	constexpr bytes(const byte_t* data, size_t len) noexcept {
-		std::copy(data, data + std::min(N, len), data_) ;
-	}
+    /** @brief Construct dari integer (little-endian) */
+    template <typename IntT>
+    requires std::is_integral_v<IntT>
+    constexpr explicit bytes(IntT value) noexcept {
+        constexpr size_type copy = sizeof(IntT) < N ? sizeof(IntT) : N;
+        if constexpr (copy <= 8) {
+            for (size_type i = 0; i < copy; ++i) {
+                data_[i] = static_cast<byte_t>(value >> (i * 8));
+            }
+        } else {
+            std::memcpy(data_, &value, copy);
+        }
+    }
 
-	/**
-	 * @brief Konstruktor dari integer type
-	 * @tparam IntType Tipe integer (uint8_t, uint16_t, uint32_t, uint64_t, dll)
-	 * @param value Nilai integer yang akan dikonversi
-	 * @note Byte order adalah little-endian
-	 */
-	template <typename IntType>
-	requires std::is_integral_v<IntType>
-	constexpr explicit bytes(IntType value) noexcept {
-		constexpr size_t int_size = sizeof(IntType) ;
-		constexpr size_t copy_size = std::min(N, int_size) ;
-		std::memcpy(data_, &value, copy_size) ;
-	}
+    /** @brief Fill constructor */
+    constexpr explicit bytes(byte_t fill_value) noexcept {
+        for (size_type i = 0; i < N; ++i) data_[i] = fill_value;
+    }
 
-	// ============= Element Access =============
-	
-	/**
-	 * @brief Akses elemen dengan bounds checking (clamp ke range valid)
-	 * @param index Indeks elemen
-	 * @return Reference ke byte
-	 */
-	[[nodiscard]] constexpr const byte_t& operator[](index_t index) const noexcept {
-		return data_[std::min(index, N - 1)] ;
-	}
+    // ============= Element Access =============
 
-	[[nodiscard]] constexpr byte_t& operator[](index_t index) noexcept {
-		return data_[std::min(index, N - 1)] ;
-	}
+    [[nodiscard]] constexpr reference operator[](size_type i) noexcept { 
+        return data_[i < N ? i : N - 1]; 
+    }
+    [[nodiscard]] constexpr const_reference operator[](size_type i) const noexcept { 
+        return data_[i < N ? i : N - 1]; 
+    }
+    [[nodiscard]] constexpr reference at(size_type i) noexcept { return data_[i]; }
+    [[nodiscard]] constexpr const_reference at(size_type i) const noexcept { return data_[i]; }
+    [[nodiscard]] constexpr reference front() noexcept { return data_[0]; }
+    [[nodiscard]] constexpr const_reference front() const noexcept { return data_[0]; }
+    [[nodiscard]] constexpr reference back() noexcept { return data_[N - 1]; }
+    [[nodiscard]] constexpr const_reference back() const noexcept { return data_[N - 1]; }
+    [[nodiscard]] constexpr pointer data() noexcept { return data_; }
+    [[nodiscard]] constexpr const_pointer data() const noexcept { return data_; }
 
-	/**
-	 * @brief Akses elemen tanpa bounds checking (lebih cepat)
-	 * @param index Indeks elemen (harus valid: 0 <= index < N)
-	 */
-	[[nodiscard]] constexpr const byte_t& at(index_t index) const noexcept {
-		return data_[index] ;
-	}
+    // ============= Capacity =============
 
-	[[nodiscard]] constexpr byte_t& at(index_t index) noexcept {
-		return data_[index] ;
-	}
+    [[nodiscard]] static constexpr size_type size() noexcept { return N; }
+    [[nodiscard]] static constexpr size_type bit_size() noexcept { return N * 8; }
+    [[nodiscard]] static constexpr bool empty() noexcept { return false; }
 
-	// ============= Bitwise Operations =============
+    // ============= Iterators =============
 
-	/**
-	 * @brief Operasi OR bitwise
-	 * @note Optimized dengan loop unrolling hint
-	 */
-	[[nodiscard]] constexpr bytes operator|(const bytes& other) const noexcept {
-		bytes result ;
-		for (index_t i = 0 ; i < N ; ++i) {
-			result.data_[i] = data_[i] | other.data_[i] ;
-		}
-		return result ;
-	}
+    [[nodiscard]] constexpr pointer begin() noexcept { return data_; }
+    [[nodiscard]] constexpr pointer end() noexcept { return data_ + N; }
+    [[nodiscard]] constexpr const_pointer begin() const noexcept { return data_; }
+    [[nodiscard]] constexpr const_pointer end() const noexcept { return data_ + N; }
+    [[nodiscard]] constexpr const_pointer cbegin() const noexcept { return data_; }
+    [[nodiscard]] constexpr const_pointer cend() const noexcept { return data_ + N; }
 
-	[[nodiscard]] constexpr bytes operator&(const bytes& other) const noexcept {
-		bytes result ;
-		for (index_t i = 0 ; i < N ; ++i) {
-			result.data_[i] = data_[i] & other.data_[i] ;
-		}
-		return result ;
-	}
+    // ============= Bitwise Operations =============
 
-	[[nodiscard]] constexpr bytes operator^(const bytes& other) const noexcept {
-		bytes result ;
-		for (index_t i = 0 ; i < N ; ++i) {
-			result.data_[i] = data_[i] ^ other.data_[i] ;
-		}
-		return result ;
-	}
+    [[nodiscard]] constexpr bytes operator|(const bytes& o) const noexcept {
+        bytes r;
+        for (size_type i = 0; i < N; ++i) r.data_[i] = data_[i] | o.data_[i];
+        return r;
+    }
 
-	[[nodiscard]] constexpr bytes operator~() const noexcept {
-		bytes result ;
-		for (index_t i = 0 ; i < N ; ++i) {
-			result.data_[i] = ~data_[i] ;
-		}
-		return result ;
-	}
+    [[nodiscard]] constexpr bytes operator&(const bytes& o) const noexcept {
+        bytes r;
+        for (size_type i = 0; i < N; ++i) r.data_[i] = data_[i] & o.data_[i];
+        return r;
+    }
 
-	// ============= Shift Operations =============
+    [[nodiscard]] constexpr bytes operator^(const bytes& o) const noexcept {
+        bytes r;
+        for (size_type i = 0; i < N; ++i) r.data_[i] = data_[i] ^ o.data_[i];
+        return r;
+    }
 
-	/**
-	 * @brief Left shift (shift ke kiri)
-	 * @param shift_bits Jumlah bit yang di-shift
-	 * @return Hasil shift
-	 * @note Implementasi optimized dengan carry propagation yang benar
-	 */
-	[[nodiscard]] constexpr bytes operator<<(index_t shift_bits) const noexcept {
-		if (shift_bits == 0) return *this ;
-		if (shift_bits >= N * 8) return bytes{} ;
+    [[nodiscard]] constexpr bytes operator~() const noexcept {
+        bytes r;
+        for (size_type i = 0; i < N; ++i) r.data_[i] = ~data_[i];
+        return r;
+    }
 
-		bytes result ;
-		const index_t byte_shift = shift_bits / 8 ;
-		const index_t bit_shift = shift_bits % 8 ;
+    // ============= Shift Operations =============
 
-		if (bit_shift == 0) {
-			// Byte-aligned shift (lebih cepat)
-			for (index_t i = byte_shift ; i < N ; ++i) {
-				result.data_[i] = data_[i - byte_shift] ;
-			}
-		} else {
-			// Bit shift dengan carry
-			byte_t carry = 0 ;
-			for (index_t i = 0 ; i < N - byte_shift ; ++i) {
-				index_t src_idx = i ;
-				index_t dst_idx = i + byte_shift ;
-				result.data_[dst_idx] = (data_[src_idx] << bit_shift) | carry ;
-				carry = data_[src_idx] >> (8 - bit_shift) ;
-			}
-		}
-		return result ;
-	}
+    [[nodiscard]] constexpr bytes operator<<(size_type bits) const noexcept {
+        if (bits == 0) return *this;
+        if (bits >= bit_count) return bytes{};
+        
+        bytes r;
+        const size_type byte_sh = bits / 8;
+        const size_type bit_sh = bits % 8;
 
-	/**
-	 * @brief Right shift (shift ke kanan)
-	 * @param shift_bits Jumlah bit yang di-shift
-	 * @return Hasil shift
-	 */
-	[[nodiscard]] constexpr bytes operator>>(index_t shift_bits) const noexcept {
-		if (shift_bits == 0) return *this ;
-		if (shift_bits >= N * 8) return bytes{} ;
+        if (bit_sh == 0) {
+            for (size_type i = byte_sh; i < N; ++i) 
+                r.data_[i] = data_[i - byte_sh];
+        } else {
+            byte_t carry = 0;
+            for (size_type i = 0; i < N - byte_sh; ++i) {
+                r.data_[i + byte_sh] = (data_[i] << bit_sh) | carry;
+                carry = data_[i] >> (8 - bit_sh);
+            }
+        }
+        return r;
+    }
 
-		bytes result ;
-		const index_t byte_shift = shift_bits / 8 ;
-		const index_t bit_shift = shift_bits % 8 ;
+    [[nodiscard]] constexpr bytes operator>>(size_type bits) const noexcept {
+        if (bits == 0) return *this;
+        if (bits >= bit_count) return bytes{};
+        
+        bytes r;
+        const size_type byte_sh = bits / 8;
+        const size_type bit_sh = bits % 8;
 
-		if (bit_shift == 0) {
-			// Byte-aligned shift
-			for (index_t i = 0 ; i < N - byte_shift ; ++i) {
-				result.data_[i] = data_[i + byte_shift] ;
-			}
-		} else {
-			// Bit shift dengan carry
-			byte_t carry = 0 ;
-			for (index_t i = N - byte_shift ; i-- > 0 ;) {
-				index_t src_idx = i + byte_shift ;
-				index_t dst_idx = i ;
-				result.data_[dst_idx] = (data_[src_idx] >> bit_shift) | carry ;
-				carry = data_[src_idx] << (8 - bit_shift) ;
-			}
-		}
-		return result ;
-	}
+        if (bit_sh == 0) {
+            for (size_type i = 0; i < N - byte_sh; ++i) 
+                r.data_[i] = data_[i + byte_sh];
+        } else {
+            byte_t carry = 0;
+            for (size_type i = N - byte_sh; i-- > 0;) {
+                r.data_[i] = (data_[i + byte_sh] >> bit_sh) | carry;
+                carry = data_[i + byte_sh] << (8 - bit_sh);
+            }
+        }
+        return r;
+    }
 
-	// ============= Compound Assignment =============
+    // ============= Compound Assignment =============
 
-	constexpr bytes& operator|=(const bytes& other) noexcept { return (*this = (*this | other)) ; }
-	constexpr bytes& operator&=(const bytes& other) noexcept { return (*this = (*this & other)) ; }
-	constexpr bytes& operator^=(const bytes& other) noexcept { return (*this = (*this ^ other)) ; }
-	constexpr bytes& operator<<=(index_t n) noexcept { return (*this = (*this << n)) ; }
-	constexpr bytes& operator>>=(index_t n) noexcept { return (*this = (*this >> n)) ; }
+    constexpr bytes& operator|=(const bytes& o) noexcept { return *this = *this | o; }
+    constexpr bytes& operator&=(const bytes& o) noexcept { return *this = *this & o; }
+    constexpr bytes& operator^=(const bytes& o) noexcept { return *this = *this ^ o; }
+    constexpr bytes& operator<<=(size_type n) noexcept { return *this = *this << n; }
+    constexpr bytes& operator>>=(size_type n) noexcept { return *this = *this >> n; }
 
-	// ============= Bit Manipulation =============
+    // ============= Bit Manipulation =============
 
-	/**
-	 * @brief Set bit pada posisi tertentu
-	 * @param bit_pos Posisi bit (0 = LSB byte pertama)
-	 */
-	constexpr void set_bit(index_t bit_pos) noexcept {
-		if (bit_pos < N * 8) {
-			data_[bit_pos / 8] |= (1 << (bit_pos % 8)) ;
-		}
-	}
+    constexpr void set_bit(size_type pos) noexcept {
+        if (pos < bit_count) data_[pos / 8] |= (1u << (pos % 8));
+    }
 
-	/**
-	 * @brief Clear bit pada posisi tertentu
-	 */
-	constexpr void clear_bit(index_t bit_pos) noexcept {
-		if (bit_pos < N * 8) {
-			data_[bit_pos / 8] &= ~(1 << (bit_pos % 8)) ;
-		}
-	}
+    constexpr void clear_bit(size_type pos) noexcept {
+        if (pos < bit_count) data_[pos / 8] &= ~(1u << (pos % 8));
+    }
 
-	/**
-	 * @brief Toggle bit pada posisi tertentu
-	 */
-	constexpr void toggle_bit(index_t bit_pos) noexcept {
-		if (bit_pos < N * 8) {
-			data_[bit_pos / 8] ^= (1 << (bit_pos % 8)) ;
-		}
-	}
+    constexpr void toggle_bit(size_type pos) noexcept {
+        if (pos < bit_count) data_[pos / 8] ^= (1u << (pos % 8));
+    }
 
-	/**
-	 * @brief Test bit pada posisi tertentu
-	 * @return true jika bit = 1, false jika bit = 0
-	 */
-	[[nodiscard]] constexpr bool test_bit(index_t bit_pos) const noexcept {
-		if (bit_pos >= N * 8) return false ;
-		return (data_[bit_pos / 8] & (1 << (bit_pos % 8))) != 0 ;
-	}
+    [[nodiscard]] constexpr bool test_bit(size_type pos) const noexcept {
+        return pos < bit_count && (data_[pos / 8] & (1u << (pos % 8))) != 0;
+    }
 
-	/**
-	 * @brief Hitung jumlah bit yang bernilai 1
-	 */
-	[[nodiscard]] constexpr size_t popcount() const noexcept {
-		size_t count = 0 ;
-		for (index_t i = 0 ; i < N ; ++i) {
-			count += std::popcount(data_[i]) ;
-		}
-		return count ;
-	}
+    [[nodiscard]] constexpr size_type popcount() const noexcept {
+        size_type c = 0;
+        for (size_type i = 0; i < N; ++i) c += std::popcount(data_[i]);
+        return c;
+    }
 
-	// ============= Rotation =============
+    // ============= Rotation =============
 
-	/**
-	 * @brief Rotate left (circular shift)
-	 * @param n Jumlah bit untuk rotate
-	 */
-	[[nodiscard]] constexpr bytes rotate_left(index_t n) const noexcept {
-		n %= (N * 8) ;
-		return (*this << n) | (*this >> (N * 8 - n)) ;
-	}
+    [[nodiscard]] constexpr bytes rotate_left(size_type n) const noexcept {
+        n %= bit_count;
+        return (*this << n) | (*this >> (bit_count - n));
+    }
 
-	/**
-	 * @brief Rotate right (circular shift)
-	 */
-	[[nodiscard]] constexpr bytes rotate_right(index_t n) const noexcept {
-		n %= (N * 8) ;
-		return (*this >> n) | (*this << (N * 8 - n)) ;
-	}
+    [[nodiscard]] constexpr bytes rotate_right(size_type n) const noexcept {
+        n %= bit_count;
+        return (*this >> n) | (*this << (bit_count - n));
+    }
 
-	// ============= Conversion =============
+    // ============= Conversion =============
 
-	/**
-	 * @brief Konversi ke integer type
-	 * @tparam IntType Tipe integer target
-	 * @return Nilai integer (little-endian)
-	 */
-	template <typename IntType>
-	requires std::is_integral_v<IntType>
-	[[nodiscard]] constexpr IntType to_int() const noexcept {
-		IntType result = 0 ;
-		constexpr size_t copy_size = std::min(N, sizeof(IntType)) ;
-		std::memcpy(&result, data_, copy_size) ;
-		return result ;
-	}
+    template <typename IntT>
+    requires std::is_integral_v<IntT>
+    [[nodiscard]] constexpr IntT to_int() const noexcept {
+        IntT r = 0;
+        constexpr size_type copy = sizeof(IntT) < N ? sizeof(IntT) : N;
+        for (size_type i = 0; i < copy; ++i) {
+            r |= static_cast<IntT>(data_[i]) << (i * 8);
+        }
+        return r;
+    }
 
-	// ============= Iterators  =============
+    // ============= Modifiers =============
 
-	[[nodiscard]] constexpr auto begin() noexcept { return iterator<byte_t>(data_) ; }
-	[[nodiscard]] constexpr auto end() noexcept { return iterator<byte_t>(data_ + N) ; }
-	[[nodiscard]] constexpr auto begin() const noexcept { return const_iterator<byte_t>(data_) ; }
-	[[nodiscard]] constexpr auto end() const noexcept { return const_iterator<byte_t>(data_ + N) ; }
-	[[nodiscard]] constexpr auto cbegin() const noexcept { return const_iterator<byte_t>(data_) ; }
-	[[nodiscard]] constexpr auto cend() const noexcept { return const_iterator<byte_t>(data_ + N) ; }
+    constexpr void fill(byte_t v) noexcept {
+        for (size_type i = 0; i < N; ++i) data_[i] = v;
+    }
 
-	// ============= Element Access =============
+    constexpr void clear() noexcept { fill(0); }
 
-	[[nodiscard]] constexpr byte_t& front() noexcept { return data_[0] ; }
-	[[nodiscard]] constexpr byte_t& back() noexcept { return data_[N - 1] ; }
-	[[nodiscard]] constexpr const byte_t& front() const noexcept { return data_[0] ; }
-	[[nodiscard]] constexpr const byte_t& back() const noexcept { return data_[N - 1] ; }
+    [[nodiscard]] constexpr bytes reverse() const noexcept {
+        bytes r;
+        for (size_type i = 0; i < N; ++i) r.data_[i] = data_[N - 1 - i];
+        return r;
+    }
 
-	// ============= Capacity =============
+    // ============= Comparison =============
 
-	[[nodiscard]] constexpr size_t size() const noexcept { return N ; }
-	[[nodiscard]] constexpr size_t bit_size() const noexcept { return N * 8 ; }
-	[[nodiscard]] constexpr bool empty() const noexcept { return false ; }
+    [[nodiscard]] constexpr bool operator==(const bytes&) const noexcept = default;
+    [[nodiscard]] constexpr auto operator<=>(const bytes&) const noexcept = default;
+};
 
-	// ============= Data Access =============
+// Deduction guide
+template <size_t N>
+bytes(const unsigned char (&)[N]) -> bytes<N>;
 
-	[[nodiscard]] constexpr byte_t* data() noexcept { return data_ ; }
-	[[nodiscard]] constexpr const byte_t* data() const noexcept { return data_ ; }
-
-	// ============= Modifiers =============
-
-	constexpr void fill(byte_t value) noexcept {
-		std::fill(data_, data_ + N, value) ;
-	}
-
-	constexpr void clear() noexcept { fill(0) ; }
-
-	/**
-	 * @brief Reverse urutan byte (bukan bit!)
-	 * @note Untuk endianness conversion
-	 */
-	[[nodiscard]] constexpr bytes reverse() const noexcept {
-		bytes result ;
-		for (index_t i = 0 ; i < N ; ++i) {
-			result.data_[i] = data_[N - 1 - i] ;
-		}
-		return result ;
-	}
-
-	// ============= Comparison =============
-
-	[[nodiscard]] constexpr bool operator==(const bytes&) const noexcept = default ;
-	[[nodiscard]] constexpr auto operator<=>(const bytes&) const noexcept = default ;
-
-	// ============= Output (Binary) =============
-
-	friend inline std::ostream& operator<<(std::ostream& os, const bytes& b) {
-		for (index_t i = 0 ; i < N ; ++i) {
-			for (int j = 7 ; j >= 0 ; --j) {
-				os << ((b.data_[i] >> j) & 1 ? '1' : '0') ;
-			}
-			if (i != N - 1) os << ' ' ;
-		}
-		return os ;
-	}
-
-	/**
-	 * @brief Print dalam format hexadecimal
-	 */
-	void print_hex(std::ostream& os = std::cout) const {
-		os << "0x" ;
-		for (index_t i = N ; i-- > 0 ;) {
-			os << std::hex << std::setfill('0') << std::setw(2) 
-			   << static_cast<int>(data_[i]) ;
-		}
-		os << std::dec ;
-	}
-} ;
+} // namespace zuu
